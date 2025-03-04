@@ -209,8 +209,17 @@ def prepare_frame_data(data, vehicle_colors, scale=1.0, mode='Top N', top_n=3, n
         print("所有状态均无效（x 或 y 为 null）。")
         return None, None, None, None, None
 
-    # 根据局部坐标计算绘图范围
-    min_x, max_x, min_y, max_y = get_plot_limits(valid_states, scale=scale)
+    # 根据变换后的坐标计算绘图范围
+    all_new_x = [node["y_local"] / scale for node in valid_states]  # 新x为原y
+    all_new_y = [-node["x_local"] / scale for node in valid_states]  # 新y为-原x
+    if not all_new_x or not all_new_y:
+        min_new_x, max_new_x, min_new_y, max_new_y = -10, 10, -10, 10
+    else:
+        min_new_x, max_new_x = min(all_new_x), max(all_new_x)
+        min_new_y, max_new_y = min(all_new_y), max(all_new_y)
+    padding_x = 4.0 
+    padding_y = 4.0 
+    plot_limits = (min_new_x - padding_x, max_new_x + padding_x, min_new_y - padding_y, max_new_y + padding_y)
 
     # 更新全局最大深度（这里用 iter 作为深度）
     global max_depth_global
@@ -247,9 +256,9 @@ def prepare_frame_data(data, vehicle_colors, scale=1.0, mode='Top N', top_n=3, n
 
     polygons = []
     for node in selected_nodes:
-        x = node["x_local"] / scale
-        y = node["y_local"] / scale
-        theta = node["theta_local"]
+        x = node["y_local"] / scale  # 新x为原y
+        y = -node["x_local"] / scale  # 新y为-原x
+        theta = node["theta_local"] - math.pi / 2  # 新角度减去90度
         vid = node["vehicle_id"]
         depth = node["depth"]
         reward = node.get("reward", 0)
@@ -260,7 +269,7 @@ def prepare_frame_data(data, vehicle_colors, scale=1.0, mode='Top N', top_n=3, n
         length = 1.0
         width = 2.0
 
-        # 计算旋转后的矩形四个角的坐标
+        # 计算旋转后的矩形四个角的坐标，使用新角度
         corners = calculate_rotated_rectangle(x, y, length, width, math.degrees(theta))
         xs = [point[0] for point in corners]
         ys = [point[1] for point in corners]
@@ -315,7 +324,7 @@ def prepare_frame_data(data, vehicle_colors, scale=1.0, mode='Top N', top_n=3, n
 
     current_vehicle_ids = sorted(set(node["vehicle_id"] for node in selected_nodes))
 
-    return data_dict, (min_x, max_x, min_y, max_y), current_vehicle_ids, max_depth, selected_nodes
+    return data_dict, plot_limits, current_vehicle_ids, max_depth, selected_nodes
 
 def update_plot(attr, old, new):
     """
@@ -339,21 +348,25 @@ def update_plot(attr, old, new):
     if new_data is None:
         return
 
-    p.x_range.start = plot_limits[0]
-    p.x_range.end = plot_limits[1]
-    p.y_range.start = plot_limits[2]
-    p.y_range.end = plot_limits[3]
+    min_new_x, max_new_x, min_new_y, max_new_y = plot_limits
 
-    source.data = new_data
+    p.x_range.start = min_new_x
+    p.x_range.end = max_new_x
+    p.y_range.start = min_new_y
+    p.y_range.end = max_new_y
+
     p.title.text = f'MCTS Tree Vehicle Visualization\nFile: {os.path.basename(file)}'
 
     # 更新道路线条
-    min_y, max_y = plot_limits[2], plot_limits[3]
-    main_centerline_source.data = dict(x=[0, 0], y=[min_y, max_y])
-    shifted_centerline_source.data = dict(x=[-3, -3], y=[min_y, max_y])
-    boundary_right_source.data = dict(x=[1.5, 1.5], y=[min_y, max_y])
-    boundary_left_source.data = dict(x=[-4.5, -4.5], y=[min_y, max_y])
-    road_fill_source.data = dict(x=[1.5, 1.5, -4.5, -4.5], y=[min_y, max_y, max_y, min_y])
+    main_centerline_source.data = dict(x=[min_new_x, max_new_x], y=[0, 0])
+    shifted_centerline_source.data = dict(x=[min_new_x, max_new_x], y=[3, 3])
+    boundary_right_source.data = dict(x=[min_new_x, max_new_x], y=[-2, -2])
+    boundary_left_source.data = dict(x=[min_new_x, max_new_x], y=[6, 6])
+    road_fill_source.data = dict(x=[min_new_x, max_new_x, max_new_x, min_new_x], y=[-2, -2, 6, 6])
+
+    source.data = new_data
+    p.xaxis.axis_label = 'Forward Direction (meters)'
+    p.yaxis.axis_label = 'Lateral Direction (meters)'
 
 def update_mode(attr, old, new):
     """
@@ -458,25 +471,25 @@ def main():
         x_range=(plot_limits[0], plot_limits[1]),
         y_range=(plot_limits[2], plot_limits[3]),
         width=800,
-        height=800,
+        height=600,  # 调整为更宽的显示
         tools="pan,box_zoom,reset,save",
         output_backend="canvas"
     )
     p.background_fill_color = "white"
     p.grid.grid_line_color = None
-    p.xaxis.axis_label = 'X Position (meters)'
-    p.yaxis.axis_label = 'Y Position (meters)'
+    p.xaxis.axis_label = 'Forward Direction (meters)'
+    p.yaxis.axis_label = 'Lateral Direction (meters)'
     p.title.text_font_size = '20pt'
     p.xaxis.axis_label_text_font_size = '14pt'
     p.yaxis.axis_label_text_font_size = '14pt'
 
     # 创建道路线条和填充的 ColumnDataSource
-    min_y, max_y = plot_limits[2], plot_limits[3]
-    main_centerline_source = ColumnDataSource(data=dict(x=[0, 0], y=[min_y, max_y]))
-    shifted_centerline_source = ColumnDataSource(data=dict(x=[-3, -3], y=[min_y, max_y]))
-    boundary_right_source = ColumnDataSource(data=dict(x=[1.5, 1.5], y=[min_y, max_y]))
-    boundary_left_source = ColumnDataSource(data=dict(x=[-4.5, -4.5], y=[min_y, max_y]))
-    road_fill_source = ColumnDataSource(data=dict(x=[1.5, 1.5, -4.5, -4.5], y=[min_y, max_y, max_y, min_y]))
+    min_new_x, max_new_x, min_new_y, max_new_y = plot_limits
+    main_centerline_source = ColumnDataSource(data=dict(x=[min_new_x, max_new_x], y=[0, 0]))
+    shifted_centerline_source = ColumnDataSource(data=dict(x=[min_new_x, max_new_x], y=[4, 4]))
+    boundary_right_source = ColumnDataSource(data=dict(x=[min_new_x, max_new_x], y=[-4, -4]))
+    boundary_left_source = ColumnDataSource(data=dict(x=[min_new_x, max_new_x], y=[6, 6]))
+    road_fill_source = ColumnDataSource(data=dict(x=[min_new_x, max_new_x, max_new_x, min_new_x], y=[-4, -4, 6, 6]))
 
     # 绘制道路填充
     road_fill_renderer = p.patch('x', 'y', source=road_fill_source,

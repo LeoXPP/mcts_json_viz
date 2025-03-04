@@ -218,21 +218,21 @@ def prepare_frame_data(data, vehicle_colors, scale=1.0, mode='Top N', top_n=3, n
 
     polygons = []
     for node in selected_nodes:
-        x = node["x_local"] / scale
-        y = node["y_local"] / scale
+        x_local = node["x_local"] / scale
+        y_local = node["y_local"] / scale
+        # 变换坐标：旋转90度，(x, y) -> (y, -x)
+        new_x = y_local
+        new_y = -x_local
         theta = node["theta_local"]
-        vid = node["vehicle_id"]
-        depth = node["depth"]
-        reward = node.get("reward", 0)
-        color = vehicle_colors.get(vid, 'blue')
-        alpha = 1.0 - (depth / (max_depth + 1))
+        # 调整方向角，减去90度
+        new_theta = (theta - 90) % 360
 
         # 车辆尺寸：长1米，宽2米（根据您提供的注释调整）
-        length = 1.0
-        width = 2.0
+        length = 2.0
+        width = 5.0
 
-        # 计算旋转后的矩形四个角的坐标
-        corners = calculate_rotated_rectangle(x, y, length, width, math.degrees(theta))
+        # 计算旋转后的矩形四个角的坐标，使用变换后的坐标和角度
+        corners = calculate_rotated_rectangle(new_x, new_y, length, width, new_theta)
         xs = [point[0] for point in corners]
         ys = [point[1] for point in corners]
 
@@ -245,6 +245,11 @@ def prepare_frame_data(data, vehicle_colors, scale=1.0, mode='Top N', top_n=3, n
         vehicle_states_serialized = json.dumps(vehicle_states, indent=2)
 
         # 获取节点相关信息
+        vid = node["vehicle_id"]
+        depth = node["depth"]
+        reward = node.get("reward", 0)
+        color = vehicle_colors.get(vid, 'blue')
+        alpha = 1.0 - (depth / (max_depth + 1))
         visits = node.get("visits", 0)
         expanded_num = node.get("expanded_num", 0)
         iter_ = node.get("iter", 0)
@@ -311,7 +316,7 @@ def prepare_frame_data(data, vehicle_colors, scale=1.0, mode='Top N', top_n=3, n
 
     current_vehicle_ids = sorted(set(node["vehicle_id"] for node in selected_nodes))
 
-    return data_dict, (min_x, max_x, min_y, max_y), current_vehicle_ids, max_depth, selected_nodes
+    return data_dict, (min_y, max_y, -max_x, -min_x), current_vehicle_ids, max_depth, selected_nodes
 
 def update_plot(attr, old, new):
     """
@@ -345,32 +350,32 @@ def update_plot(attr, old, new):
     p.title.text = f'MCTS Tree Vehicle Visualization\nFile: {os.path.basename(file)}'
 
     # Update road lines based on new plot limits
-    min_y, max_y = plot_limits[2], plot_limits[3]
+    min_y, max_y = plot_limits[0], plot_limits[1]
 
     main_centerline_source.data = dict(
-        x=[0, 0],
-        y=[min_y, max_y]
+        x=[min_y, max_y],
+        y=[0, 0]
     )
 
     shifted_centerline_source.data = dict(
-        x=[-3, -3],
-        y=[min_y, max_y]
+        x=[min_y, max_y],
+        y=[4, 4]
     )
 
     boundary_right_source.data = dict(
-        x=[1.5, 1.5],
-        y=[min_y, max_y]
+        x=[min_y, max_y],
+        y=[-2, -2]
     )
 
     boundary_left_source.data = dict(
-        x=[-4.5, -4.5],
-        y=[min_y, max_y]
+        x=[min_y, max_y],
+        y=[6, 6]
     )
 
     # Update road fill
     road_fill_source.data = dict(
-        x=[1.5, 1.5, -4.5, -4.5],
-        y=[min_y, max_y, max_y, min_y]
+        x=[min_y, max_y, max_y, min_y],
+        y=[-2, -2, 6, 6]
     )
 
 def update_mode(attr, old, new):
@@ -466,39 +471,39 @@ def main():
     )
     p.background_fill_color = "white"  # 设置背景为白色
     p.grid.grid_line_color = None  # 去除网格线
-    p.xaxis.axis_label = 'X Position (meters)'
-    p.yaxis.axis_label = 'Y Position (meters)'
+    p.xaxis.axis_label = 'Original Y Position (meters)'
+    p.yaxis.axis_label = '-Original X Position (meters)'
     p.title.text_font_size = '20pt'
     p.xaxis.axis_label_text_font_size = '14pt'
     p.yaxis.axis_label_text_font_size = '14pt'
     # p.legend.label_text_font_size 和 p.legend.draggable 将在添加图例后设置
 
     # 创建 ColumnDataSources for road lines and fill
-    min_y, max_y = plot_limits[2], plot_limits[3]
+    min_y, max_y = plot_limits[0], plot_limits[1]
 
     main_centerline_source = ColumnDataSource(data=dict(
-        x=[0, 0],
-        y=[min_y, max_y]
+        x=[min_y, max_y],
+        y=[0, 0]
     ))
 
     shifted_centerline_source = ColumnDataSource(data=dict(
-        x=[-3, -3],
-        y=[min_y, max_y]
+        x=[min_y, max_y],
+        y=[4, 4]
     ))
 
     boundary_right_source = ColumnDataSource(data=dict(
-        x=[1.5, 1.5],
-        y=[min_y, max_y]
+        x=[min_y, max_y],
+        y=[-4, -4]
     ))
 
     boundary_left_source = ColumnDataSource(data=dict(
-        x=[-4.5, -4.5],
-        y=[min_y, max_y]
+        x=[min_y, max_y],
+        y=[6, 6]
     ))
 
     road_fill_source = ColumnDataSource(data=dict(
-        x=[1.5, 1.5, -4.5, -4.5],
-        y=[min_y, max_y, max_y, min_y]
+        x=[min_y, max_y, max_y, min_y],
+        y=[-4, -4, 6, 6]
     ))
 
     # 添加道路填充
@@ -806,5 +811,4 @@ def main():
 
     curdoc().add_root(layout)
     curdoc().title = "MCTS Tree Vehicle Visualization"
-    
 main()
