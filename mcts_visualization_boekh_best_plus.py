@@ -313,91 +313,16 @@ def prepare_frame_data(data, vehicle_colors, scale=1.0, mode='Top N', top_n=3, n
 
     return data_dict, (min_x, max_x, min_y, max_y), current_vehicle_ids, max_depth, selected_nodes
 
-## 新增：处理 bestnodeseq 数据，方式与 nodes 类似
-def prepare_bestnodeseq_data(data, T, vehicle_colors, initial_theta0, scale=1.0):
-    """
-    对 bestnodeseq 数据进行处理，利用与 nodes 类似的方式转换全局坐标到局部坐标，
-    并计算车辆矩形的四个角坐标。这里直接将每个 best 节点中的所有 vehicle_states 绘制出来，
-    其中 alpha 固定为1.0，iter 和 reward 作为额外信息。
-    """
-    best_nodes = data.get("bestnodeseq", [])
-    if not best_nodes:
-        return dict(xs=[], ys=[], color=[], alpha=[], vid=[], iter=[], reward=[])
-    
-    polygons = []
-    for best in best_nodes:
-        iter_val = best.get("iter", 0)
-        reward_val = best.get("reward", 0)
-        for state in best.get("vehicle_states", []):
-            if state.get("x") is None or state.get("y") is None:
-                continue
-            x_global = state["x"]
-            y_global = state["y"]
-            # 转换到局部坐标系
-            x_local, y_local = apply_transformation(x_global, y_global, T)
-            # 调整角度，同样减去初始 ego 的朝向
-            theta_global = state.get("theta", 0)
-            theta_local = theta_global - initial_theta0
-            theta_deg = math.degrees(theta_local)
-            vid = state.get("vehicle_id", "unknown")
-            color = vehicle_colors.get(vid, 'blue')
-            alpha = 1.0
-
-            # 车辆尺寸与 nodes 保持一致
-            length = 1.0
-            width = 2.0
-            corners = calculate_rotated_rectangle(x_local/scale, y_local/scale, length, width, theta_deg)
-            xs = [pt[0] for pt in corners]
-            ys = [pt[1] for pt in corners]
-
-            polygons.append({
-                'xs': xs,
-                'ys': ys,
-                'color': color,
-                'alpha': alpha,
-                'vid': vid,
-                'iter': iter_val,
-                'reward': reward_val,
-            })
-
-    best_data = dict(
-        xs=[poly['xs'] for poly in polygons],
-        ys=[poly['ys'] for poly in polygons],
-        color=[poly['color'] for poly in polygons],
-        alpha=[poly['alpha'] for poly in polygons],
-        vid=[poly['vid'] for poly in polygons],
-        iter=[poly['iter'] for poly in polygons],
-        reward=[poly['reward'] for poly in polygons],
-    )
-    return best_data
-
-## 新增：根据 best_data 计算绘图范围
-def get_best_plot_limits(best_data):
-    if not best_data['xs']:
-        return -10, 10, -10, 10
-    all_x = []
-    all_y = []
-    for xs in best_data['xs']:
-        all_x.extend(xs)
-    for ys in best_data['ys']:
-        all_y.extend(ys)
-    if not all_x or not all_y:
-        return -10, 10, -10, 10
-    min_x, max_x = min(all_x), max(all_x)
-    min_y, max_y = min(all_y), max(all_y)
-    padding = 4.0
-    return min_x - padding, max_x + padding, min_y - padding, max_y + padding
-
 def update_plot(attr, old, new):
     """
-    更新绘图数据和视图范围，同时更新 nodes 和 bestnodeseq 两个图像。
+    更新绘图数据和视图范围。
     """
     frame_idx = slider.value
     file, data = all_data[frame_idx]
 
     current_mode = mode_select.value
     current_top_n = top_n_slider.value if current_mode == 'Top N' else None
-    node_id_filter_val = node_id_filter_input.value  # 获取节点 ID 过滤器的值
+    node_id_filter = node_id_filter_input.value  # 获取节点 ID 过滤器的值
 
     new_data, plot_limits, current_vehicle_ids, max_depth, nodes = prepare_frame_data(
         data,
@@ -405,13 +330,12 @@ def update_plot(attr, old, new):
         scale=scale,
         mode=current_mode,
         top_n=top_n_slider.value,
-        node_id_filter=node_id_filter_val  # 传递节点 ID 过滤器
+        node_id_filter=node_id_filter  # 传递节点 ID 过滤器
     )
 
     if new_data is None:
         return
 
-    # 更新原 nodes 绘图
     p.x_range.start = plot_limits[0]
     p.x_range.end = plot_limits[1]
     p.y_range.start = plot_limits[2]
@@ -420,48 +344,34 @@ def update_plot(attr, old, new):
     source.data = new_data
     p.title.text = f'MCTS Tree Vehicle Visualization\nFile: {os.path.basename(file)}'
 
-    # 更新道路相关数据
-    min_y_val, max_y_val = plot_limits[2], plot_limits[3]
+    # Update road lines based on new plot limits
+    min_y, max_y = plot_limits[2], plot_limits[3]
 
     main_centerline_source.data = dict(
         x=[0, 0],
-        y=[min_y_val, max_y_val]
+        y=[min_y, max_y]
     )
+
     shifted_centerline_source.data = dict(
         x=[-3, -3],
-        y=[min_y_val, max_y_val]
+        y=[min_y, max_y]
     )
+
     boundary_right_source.data = dict(
         x=[1.5, 1.5],
-        y=[min_y_val, max_y_val]
+        y=[min_y, max_y]
     )
+
     boundary_left_source.data = dict(
         x=[-4.5, -4.5],
-        y=[min_y_val, max_y_val]
+        y=[min_y, max_y]
     )
+
+    # Update road fill
     road_fill_source.data = dict(
         x=[1.5, 1.5, -4.5, -4.5],
-        y=[min_y_val, max_y_val, max_y_val, min_y_val]
+        y=[min_y, max_y, max_y, min_y]
     )
-
-    ## 新增：更新 bestnodeseq 绘图
-    # 使用相同的 ego 初始节点进行坐标转换
-    initial_ego_node = next((node for node in data.get("nodes", []) if node["vehicle_id"] == "ego"), None)
-    if initial_ego_node is None:
-        return
-    initial_x0 = initial_ego_node["x"]
-    initial_y0 = initial_ego_node["y"]
-    initial_theta0 = initial_ego_node["theta"]
-    T = get_transform_matrix_from_initial_pose((initial_x0, initial_y0, initial_theta0))
-    
-    best_data = prepare_bestnodeseq_data(data, T, vehicle_colors, initial_theta0, scale=scale)
-    best_source.data = best_data
-
-    best_limits = get_best_plot_limits(best_data)
-    p_best.x_range.start = best_limits[0]
-    p_best.x_range.end = best_limits[1]
-    p_best.y_range.start = best_limits[2]
-    p_best.y_range.end = best_limits[3]
 
 def update_mode(attr, old, new):
     """
@@ -485,8 +395,6 @@ def update_plot_dimensions(attr, old, new):
     """
     p.width = width_slider.value
     p.height = height_slider.value
-    p_best.width = width_slider.value
-    p_best.height = height_slider.value
 
 def main():
     global all_data, vehicle_colors, scale, p, slider, source, hover, mode_select, top_n_slider
@@ -495,7 +403,6 @@ def main():
     global width_slider, height_slider  # 添加宽度和高度滑块变量
     global main_centerline_source, shifted_centerline_source
     global boundary_right_source, boundary_left_source, road_fill_source
-    global p_best, best_source
 
     directory = '.'   # JSON 文件目录
     scale = 1.0
@@ -544,65 +451,97 @@ def main():
         print("初始帧数据准备失败。")
         return
 
-    # 创建 ColumnDataSource 用于 nodes 绘图
+    # 创建 ColumnDataSource
     source = ColumnDataSource(data=new_data)
 
-    # 创建绘图 p，用于 nodes 展示
+    # 创建绘图，确保使用 canvas 后端
     p = figure(
         title=f'MCTS Tree Vehicle Visualization\nFile: {os.path.basename(file)}',
         x_range=(plot_limits[0], plot_limits[1]),
         y_range=(plot_limits[2], plot_limits[3]),
         width=800,
         height=800,  # 初始高度
-        tools="pan,box_zoom,reset,save",
-        output_backend="canvas"
+        tools="pan,box_zoom,reset,save",  # 添加 save 工具
+        output_backend="canvas"  # 确保使用 canvas 后端
     )
-    p.background_fill_color = "white"
-    p.grid.grid_line_color = None
+    p.background_fill_color = "white"  # 设置背景为白色
+    p.grid.grid_line_color = None  # 去除网格线
     p.xaxis.axis_label = 'X Position (meters)'
     p.yaxis.axis_label = 'Y Position (meters)'
     p.title.text_font_size = '20pt'
     p.xaxis.axis_label_text_font_size = '14pt'
     p.yaxis.axis_label_text_font_size = '14pt'
+    # p.legend.label_text_font_size 和 p.legend.draggable 将在添加图例后设置
 
     # 创建 ColumnDataSources for road lines and fill
-    min_y_val, max_y_val = plot_limits[2], plot_limits[3]
+    min_y, max_y = plot_limits[2], plot_limits[3]
+
     main_centerline_source = ColumnDataSource(data=dict(
         x=[0, 0],
-        y=[min_y_val, max_y_val]
+        y=[min_y, max_y]
     ))
+
     shifted_centerline_source = ColumnDataSource(data=dict(
         x=[-3, -3],
-        y=[min_y_val, max_y_val]
+        y=[min_y, max_y]
     ))
+
     boundary_right_source = ColumnDataSource(data=dict(
         x=[1.5, 1.5],
-        y=[min_y_val, max_y_val]
+        y=[min_y, max_y]
     ))
+
     boundary_left_source = ColumnDataSource(data=dict(
         x=[-4.5, -4.5],
-        y=[min_y_val, max_y_val]
+        y=[min_y, max_y]
     ))
+
     road_fill_source = ColumnDataSource(data=dict(
         x=[1.5, 1.5, -4.5, -4.5],
-        y=[min_y_val, max_y_val, max_y_val, min_y_val]
+        y=[min_y, max_y, max_y, min_y]
     ))
 
     # 添加道路填充
-    p.patch(
+    road_fill_renderer = p.patch(
         'x', 'y',
         source=road_fill_source,
         fill_color='lightgrey',
         fill_alpha=0.5,
         line_alpha=0
     )
-    # 添加道路中心线和边界线
-    p.line('x', 'y', source=main_centerline_source, line_width=2, line_dash='dashed', line_color='black')
-    p.line('x', 'y', source=shifted_centerline_source, line_width=2, line_dash='dashed', line_color='black')
-    p.line('x', 'y', source=boundary_right_source, line_width=2, line_color='black')
-    p.line('x', 'y', source=boundary_left_source, line_width=2, line_color='black')
 
-    # 创建车辆多边形渲染器（nodes）
+    # 添加道路中心线和边界线
+    main_centerline_renderer = p.line(
+        'x', 'y',
+        source=main_centerline_source,
+        line_width=2,
+        line_dash='dashed',
+        line_color='black'
+    )
+
+    shifted_centerline_renderer = p.line(
+        'x', 'y',
+        source=shifted_centerline_source,
+        line_width=2,
+        line_dash='dashed',
+        line_color='black'
+    )
+
+    boundary_right_renderer = p.line(
+        'x', 'y',
+        source=boundary_right_source,
+        line_width=2,
+        line_color='black'
+    )
+
+    boundary_left_renderer = p.line(
+        'x', 'y',
+        source=boundary_left_source,
+        line_width=2,
+        line_color='black'
+    )
+
+    # 创建车辆多边形渲染器
     renderer = p.patches(
         'xs', 'ys',
         source=source,
@@ -610,33 +549,40 @@ def main():
         fill_alpha='alpha',
         line_color='black',
         line_width=2,
-        legend_field='category'
+        legend_field='category'  # 使用 category 作为 legend_field
     )
 
-    # 添加 TapTool 与点击回调显示车辆详情
+    # 添加 TapTool
     taptool = TapTool()
     p.add_tools(taptool)
 
+    # 奖励详情显示区域
     reward_details_div = Div(text="<h2>Vehicle Rewards Details</h2><p>Click on a vehicle to see details.</p>", width=400)
 
+    # 点击事件回调函数
     def vehicle_tap_callback(event):
+        # 获取点击的位置
         x = event.x
         y = event.y
+
+        # 在 source 中查找包含点击点的车辆
         indices = []
         for i in range(len(source.data['xs'])):
             xs = source.data['xs'][i]
             ys = source.data['ys'][i]
             if point_in_polygon(x, y, xs, ys):
                 indices.append(i)
+
         if indices:
+            # 假设只取第一个匹配的车辆
             index = indices[0]
             vid = source.data['vid'][index]
             vehicle_rewards = source.data['vehicle_rewards'][index]
             vehicle_states = source.data['vehicle_states'][index]
             depth = source.data['depth'][index]
             reward = source.data['reward'][index]
-            acc = source.data['acc'][index]
-            vel = source.data['vel'][index]
+            acc = source.data['acc'][index]        # 获取 acc
+            vel = source.data['vel'][index]        # 获取 vel
             visits = source.data['visits'][index]
             expanded_num = source.data['expanded_num'][index]
             iter_ = source.data['iter'][index]
@@ -647,18 +593,21 @@ def main():
             static_reward = source.data['static_reward'][index]
             relative_time = source.data['relative_time'][index]
 
+            # 格式化 vehicle_rewards
             vehicle_rewards_dict = json.loads(vehicle_rewards)
             rewards_html = "<ul>"
             for key, value in vehicle_rewards_dict.items():
                 rewards_html += f"<li><b>{key}:</b> {value}</li>"
             rewards_html += "</ul>"
 
+            # 格式化 vehicle_states
             vehicle_states_dict = json.loads(vehicle_states)
             vehicle_states_html = "<ul>"
             for key, value in vehicle_states_dict.items():
                 vehicle_states_html += f"<li><b>{key}:</b> {value}</li>"
             vehicle_states_html += "</ul>"
 
+            # 更新节点信息显示
             node_info_html = f"""
             <h2>Vehicle ID: {vid}</h2>
             <p><b>ID:</b> {id_}</p>
@@ -679,72 +628,26 @@ def main():
             <h3>Vehicle States:</h3>
             {vehicle_states_html}
             """
+
             reward_details_div.text = node_info_html
         else:
             reward_details_div.text = "<h2>No vehicle selected</h2>"
 
+    # 将回调函数绑定到点击事件
     p.on_event('tap', vehicle_tap_callback)
 
+    # 添加 HoverTool
     hover = HoverTool(
         renderers=[renderer],
         tooltips=[
             ("Vehicle ID", "@vid"),
             ("Depth", "@depth"),
             ("Reward", "@reward"),
-            ("Acceleration", "@acc"),
-            ("Velocity", "@vel"),
+            ("Acceleration", "@acc"),  # 添加 Acceleration
+            ("Velocity", "@vel"),       # 添加 Velocity
         ]
     )
     p.add_tools(hover)
-
-    # 创建 bestnodeseq 的 ColumnDataSource 和绘图 p_best
-    # 先计算 ego 初始信息用于转换
-    initial_ego_node = next((node for node in data.get("nodes", []) if node["vehicle_id"] == "ego"), None)
-    if initial_ego_node is None:
-        print("无法找到初始 ego 节点。")
-        return
-    initial_x0 = initial_ego_node["x"]
-    initial_y0 = initial_ego_node["y"]
-    initial_theta0 = initial_ego_node["theta"]
-    T = get_transform_matrix_from_initial_pose((initial_x0, initial_y0, initial_theta0))
-    best_data = prepare_bestnodeseq_data(data, T, vehicle_colors, initial_theta0, scale=scale)
-    best_source = ColumnDataSource(data=best_data)
-
-    best_limits = get_best_plot_limits(best_data)
-    p_best = figure(
-        title="Best Node Sequence Visualization",
-        x_range=(best_limits[0], best_limits[1]),
-        y_range=(best_limits[2], best_limits[3]),
-        width=800,
-        height=800,
-        tools="pan,box_zoom,reset,save",
-        output_backend="canvas"
-    )
-    p_best.background_fill_color = "white"
-    p_best.grid.grid_line_color = None
-    p_best.xaxis.axis_label = 'X Position (meters)'
-    p_best.yaxis.axis_label = 'Y Position (meters)'
-    p_best.title.text_font_size = '20pt'
-    p_best.xaxis.axis_label_text_font_size = '14pt'
-    p_best.yaxis.axis_label_text_font_size = '14pt'
-
-    best_renderer = p_best.patches(
-        'xs', 'ys',
-        source=best_source,
-        fill_color='color',
-        fill_alpha='alpha',
-        line_color='black',
-        line_width=2
-    )
-    best_hover = HoverTool(
-        renderers=[best_renderer],
-        tooltips=[
-            ("Vehicle ID", "@vid"),
-            ("Iter", "@iter"),
-            ("Reward", "@reward"),
-        ]
-    )
-    p_best.add_tools(best_hover)
 
     # 创建滑块和按钮
     slider = Slider(
@@ -783,7 +686,7 @@ def main():
         nonlocal is_playing
         is_playing = True
         play_button.label = "❚❚ Pause"
-        curdoc().add_periodic_callback(callback, 1000)  # 1 frame per秒
+        curdoc().add_periodic_callback(callback, 1000)  # 1 frame per sec
 
     def pause():
         nonlocal is_playing
@@ -807,6 +710,7 @@ def main():
 
     play_button.on_click(toggle_play)
 
+    # 添加动态调整图像横纵比例的滑块
     width_slider = Slider(
         start=300,
         end=3200,
@@ -827,19 +731,29 @@ def main():
     )
     height_slider.on_change('value', update_plot_dimensions)
 
+    # 创建“一键保存图像”按钮
     save_button = Button(label="Save Image", button_type="success", width=100)
+
+    # 定义 CustomJS 回调，用于保存图像
     save_callback = CustomJS(args=dict(p=p), code="""
+        // Access the plot view
         const plot_view = p.view;
         if (!plot_view) {
             console.log("Plot view not found.");
             return;
         }
+
+        // Access the canvas
         const canvas = plot_view.canvas_view.canvas;
         if (!canvas) {
             console.log("Canvas not found.");
             return;
         }
+
+        // Convert the canvas to a data URL
         const dataURL = canvas.toDataURL("image/png");
+
+        // Create a temporary link to trigger the download
         const link = document.createElement('a');
         link.href = dataURL;
         link.download = "plot.png";
@@ -847,27 +761,50 @@ def main():
         link.click();
         document.body.removeChild(link);
     """)
+
+    # 将回调绑定到按钮点击事件
     save_button.js_on_click(save_callback)
 
+    # 将控件放在左侧，包括新的节点 ID 过滤器、图像比例滑块和保存按钮
     controls = column(
         slider,
         mode_select,
         top_n_slider,
         play_button,
-        save_button,
+        save_button,            # 添加保存按钮
         vehicle_id_filter,
         depth_range_filter,
         reward_range_filter,
-        node_id_filter_input,
-        width_slider,
-        height_slider
+        node_id_filter_input,  # 添加节点 ID 过滤器到控件
+        width_slider,          # 添加图像宽度滑块
+        height_slider          # 添加图像高度滑块
     )
+    left_side = controls
+
+    # 设置控件宽度
     for control in controls.children:
         control.width = 300
 
-    # 将控件、原 nodes 绘图 p、bestnodeseq 绘图 p_best 以及车辆详情区域 reward_details_div 布局在一行
-    layout = row(controls, p, p_best, reward_details_div)
+    # 设置绘图区域宽度和高度
+    p.width = width_slider.value
+    p.height = height_slider.value
+
+    # 设置奖励详情显示区域宽度
+    reward_details_div.width = 400
+
+    # Final layout
+    layout = row(left_side, p, reward_details_div)
+
+    # 添加图例属性设置（确保图例已添加）
+    def set_legend_properties():
+        if p.legend:
+            for legend in p.legend:
+                legend.label_text_font_size = '12pt'
+
+    # 调用一次以确保图例属性被设置
+    set_legend_properties()
+
     curdoc().add_root(layout)
     curdoc().title = "MCTS Tree Vehicle Visualization"
-
+    
 main()
