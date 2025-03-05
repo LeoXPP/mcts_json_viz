@@ -359,7 +359,7 @@ def update_plot(attr, old, new):
 
     # 更新道路线条
     main_centerline_source.data = dict(x=[min_new_x, max_new_x], y=[0, 0])
-    shifted_centerline_source.data = dict(x=[min_new_x, max_new_x], y=[3, 3])
+    shifted_centerline_source.data = dict(x=[min_new_x, max_new_x], y=[4, 4])
     boundary_right_source.data = dict(x=[min_new_x, max_new_x], y=[-2, -2])
     boundary_left_source.data = dict(x=[min_new_x, max_new_x], y=[6, 6])
     road_fill_source.data = dict(x=[min_new_x, max_new_x, max_new_x, min_new_x], y=[-2, -2, 6, 6])

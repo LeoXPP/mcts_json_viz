@@ -43,6 +43,14 @@ def load_json_files(directory, pattern = "xiepanpan_mcts_tree_*.json"):
     return all_data
 
 def assign_colors(all_data):
+    """_summary_
+
+    Args:
+        all_data (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
     vehicle_ids = sorted(set(node["vehicle_id"] for _, data in all_data for node in data["nodes"]))
     palete = Category10[10]
     other_colors = list(palete)
@@ -72,6 +80,12 @@ def main():
         return
     
     vehicle_colors = assign_colors(all_data)
+    
+    max_depth_global = max(node["depth"] for _, data in all_data for node in data["nodes"] if node.get("depth") is not None)
+    
+    vehicle_ids = sorted(set(node["vehicle_id"]) for _, data in all_data for node in data["nodes"])
+    vehicle_id_filter = MultiSelect(title = "Filter by Vehicle ID", value=vehicle_ids, options=vehicle_ids)
+    vehicle_id_filter.on_change("value", lambda attr, old, new: update_plot(None, None, None))
     
     
     
