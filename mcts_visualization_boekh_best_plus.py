@@ -228,8 +228,8 @@ def prepare_frame_data(data, vehicle_colors, scale=1.0, mode='Top N', top_n=3, n
         new_theta = (theta - 90) % 360
 
         # 车辆尺寸：长1米，宽2米（根据您提供的注释调整）
-        length = 2.0
-        width = 5.0
+        length = 0.5
+        width = 0.5
 
         # 计算旋转后的矩形四个角的坐标，使用变换后的坐标和角度
         corners = calculate_rotated_rectangle(new_x, new_y, length, width, new_theta)
